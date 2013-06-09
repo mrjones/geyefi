@@ -4,10 +4,7 @@ package geyefi
  * TODO
  * - Verify credentials from card
  * - Verify checksum
- * - Flag for output directory
- * - Flag for upload key
  * - Better tests
- * - Pluggable upload handler API
  * - Fix response (either figure out how to use xml library, or use templates, not strings)
  */
 import (
