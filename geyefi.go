@@ -1,11 +1,13 @@
 package main
 
 import (
+	"archive/tar"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
   "log"
+	"io"
 	"io/ioutil"
   "net/http"
 	"strconv"
@@ -32,7 +34,6 @@ func credential(mac string, nonce string) (string, error) {
 func respond(body []byte, resp http.ResponseWriter) {
 	log.Printf("Responding %s\n", string(body))
 
-
 	resp.Header().Set("Server", "Eye-Fi Agent/2.0.4.0 (Windows XP SP2)")
 	resp.Header().Set("Pragma", "no-cache")
   resp.Header().Set("Content-Type", "text/xml; charset=\"utf-8\"") 
@@ -41,7 +42,13 @@ func respond(body []byte, resp http.ResponseWriter) {
 
 }
 
-func handleStartSession(resp http.ResponseWriter, env Envelope) {
+func handleStartSession(resp http.ResponseWriter, req *http.Request) {
+	defer req.Body.Close()
+	env, err := parseEnvelope(req.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	credential, err := credential(env.Body.StartSession.MacAddress, env.Body.StartSession.Nonce)
 	if err != nil {
 		log.Fatal(err)
@@ -83,32 +90,153 @@ func handleStartSession(resp http.ResponseWriter, env Envelope) {
 	respond(responseBytes, resp)
 }
 
-func handler(resp http.ResponseWriter, req *http.Request) {
-  log.Printf(req.URL.Path)
+func handleGetPhotoStatus(resp http.ResponseWriter, req *http.Request) {
+//	defer req.Body.Close()
+//	env, err := := parseEnvelope(req.Body)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+
+	// check card credential etc
+	respond([]byte(
+		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+		"<SOAP-ENV:Envelope xmlns:SOAP-ENV=\"http://schemas.xmlsoap.org/soap/envelope/\">" +
+    "  <SOAP-ENV:Body>" +
+		"    <ns1:GetPhotoStatusResponse xmlns:ns1=\"http://localhost/api/soap/eyefilm\">" +
+    "      <fileid>1</fileid>" + 
+    "      <offset>0</offset>" +
+    "    </ns1:GetPhotoStatusResponse>" +
+    "  </SOAP-ENV:Body>" +
+		"</SOAP-ENV:Envelope>"), resp)
+}
+
+func handleUpload(resp http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
 
-	body, err := ioutil.ReadAll(req.Body)
+	mr, err := req.MultipartReader()
 	if err != nil {
-		log.Println(err)
-		return
+		log.Fatal(err)
+	}
+
+	soapPart, err := mr.NextPart()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	env, err := parseEnvelope(soapPart)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Getting file %s\n", env.Body.UploadPhoto.FileName)
+
+	dataPart, err := mr.NextPart()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tempDir, err := ioutil.TempDir("", "eyefi")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tarReader := tar.NewReader(dataPart)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("Decompressing: %s\n", header.Name)
+		fname := fmt.Sprintf("%s/%s", tempDir, header.Name)
+
+		data, err := ioutil.ReadAll(tarReader)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("Writing %s\n", fname)
+		ioutil.WriteFile(fname, data, 0777)
+	}
+
+	data, err := ioutil.ReadAll(dataPart)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("Got %d bytes of data\n", len(data))
+
+	checksumPart, err := mr.NextPart()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	checksum, err := ioutil.ReadAll(checksumPart)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Checksum %s\n", checksum)
+
+	_, err = mr.NextPart()
+	if err != io.EOF {
+		log.Fatal("Got a fourth part!!");
+	}
+}
+
+func parseEnvelope(in io.Reader) (*Envelope, error){
+	body, err := ioutil.ReadAll(in)
+	if err != nil {
+		return nil, err
 	}
 
 	log.Println(string(body))
 	var envelope Envelope
 	err = xml.Unmarshal(body, &envelope)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
+
+	return &envelope, nil
+}
+
+func handler(resp http.ResponseWriter, req *http.Request) {
+  log.Printf(req.URL.Path)
+	defer req.Body.Close()
 
 	action := req.Header.Get("SoapAction")
 	if strings.Contains(action, "urn:StartSession") {
-		handleStartSession(resp, envelope)
+		handleStartSession(resp, req)
 	} else if strings.Contains(action, "urn:GetPhotoStatus") {
-		fmt.Println("gps")
+		handleGetPhotoStatus(resp, req)
+	} else if (strings.Contains(req.URL.Path, "/api/soap/eyefilm/v1/upload")) {
+		handleUpload(resp, req)
 	} else {
 		fmt.Printf("Unknown action:  %s\n", action)
 	}
 }
+
+/*
+2013/06/07 02:16:33 /api/soap/eyefilm/v1/upload
+2013/06/07 02:16:34 -----------------------------02468ace13579bdfcafebabef00d
+Content-Disposition: form-data; name="SOAPENVELOPE"
+
+<?xml version="1.0" encoding="UTF-8"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="EyeFi/SOAP/EyeFilm"><SOAP-ENV:Body><ns1:UploadPhoto><fileid>1</fileid><macaddress>0018562bbac0</macaddress><filename>IMG_0071.JPG.tar</filename><filesize>790016</filesize><filesignature>35310000f8f9030000000000e0110300</filesignature><encryption>none</encryption><flags>4</flags></ns1:UploadPhoto></SOAP-ENV:Body></SOAP-ENV:Envelope>
+-----------------------------02468ace13579bdfcafebabef00d
+Content-Disposition: form-data; name="FILENAME"; filename="IMG_0071.JPG.tar"
+Content-Type: application/x-tar
+
+<binary data>
+
+-----------------------------02468ace13579bdfcafebabef00d
+Content-Disposition: form-data; name="INTEGRITYDIGEST"
+
+536b79c0509311aace14ae5981f76bc1
+-----------------------------02468ace13579bdfcafebabef00d--
+
+
+*/
 
 func main() {
   log.Println("Hello, world!")
@@ -133,6 +261,15 @@ type GetPhotoStatus struct {
 	Flags int64 `xml:"flags"`
 }
 
+type UploadPhoto struct {
+	FileId int64 `xml:"fileid"`
+	MacAddress string `xml:"macaddress"`
+	FileName string `xml:"filename"`
+	Size int64 `xml:"filesize"`
+	Signature string `xml:"filesignature"`
+	Flags int64 `xml:"flags"`	
+}
+
 type StartSessionResponse struct {
 	Credential string `xml:"credential"`
 	Nonce string `xml:"snonce"`
@@ -144,6 +281,7 @@ type StartSessionResponse struct {
 type Body struct {
 	StartSession *StartSession `xml:"EyeFi/SOAP/EyeFilm StartSession,omitempty"`
 	StartSessionResponse *StartSessionResponse `xml:"EyeFi/SOAP/EyeFilm StartSessionResponse,omitempty"`
+	UploadPhoto *UploadPhoto `xml:"EyeFi/SOAP/EyeFilm UploadPhoto,omitempty"`
 }
 
 type Envelope struct {
