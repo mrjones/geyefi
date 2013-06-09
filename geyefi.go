@@ -1,4 +1,4 @@
-package main
+package geyefi
 
 /*
  * TODO
@@ -31,25 +31,54 @@ type UploadHandler interface {
 	HandleUpload(filename string, data []byte) error
 }
 
-func NewEyeFiServer(uploadKey string, uploadHandler UploadHandler) *EyeFiServer {
-	return &EyeFiServer{uploadKey: uploadKey, uploadHandler: uploadHandler}
+func NewServer(uploadKey string, uploadHandler UploadHandler) *Server {
+	return &Server{uploadKey: uploadKey, uploadHandler: uploadHandler}
 }
 
-func (e *EyeFiServer) ListenAndServe() {
+func (e *Server) ListenAndServe() {
 	log.Println("Serving")
 
 	http.HandleFunc("/", e.handler)
 	http.ListenAndServe(":59278", nil)
 }
 
+/////////////
+
+type SaveFileHandler struct {
+	Directory string
+}
+
+func (h *SaveFileHandler) HandleUpload(filename string, data []byte) error {
+	localFilename := fmt.Sprintf("%s/%s", h.Directory, filename)
+	log.Printf("Writing %s\n", localFilename)
+	return ioutil.WriteFile(localFilename, data, 0777)
+}
+
+
+/* Example
+
+func main() {
+	tempDir, err := ioutil.TempDir("", "eyefi")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	handler := &SaveFileHandler{Directory: tempDir}
+	log.Printf("Files will be saved to: %s\n", tempDir)
+	e := NewServer("818b6183a1a0839d88366f5d7a4b0161", handler)
+	e.ListenAndServe()
+}
+
+*/
+
 //////////////////
 
-type EyeFiServer struct {
+type Server struct {
 	uploadKey string
 	uploadHandler UploadHandler
 }
 
-func (e *EyeFiServer) handler(resp http.ResponseWriter, req *http.Request) {
+func (e *Server) handler(resp http.ResponseWriter, req *http.Request) {
 	log.Printf(req.URL.Path)
 	defer req.Body.Close()
 
@@ -72,7 +101,7 @@ func (e *EyeFiServer) handler(resp http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (e *EyeFiServer) credential(mac string, nonce string) (string, error) {
+func (e *Server) credential(mac string, nonce string) (string, error) {
 	h := md5.New()
 	s := mac + nonce + e.uploadKey
 	b, err := hex.DecodeString(s)
@@ -95,7 +124,7 @@ func respond(body []byte, resp http.ResponseWriter) {
 
 }
 
-func (e *EyeFiServer) handleStartSession(resp http.ResponseWriter, req *http.Request) error {
+func (e *Server) handleStartSession(resp http.ResponseWriter, req *http.Request) error {
 	defer req.Body.Close()
 	env, err := parseEnvelope(req.Body)
 	if err != nil {
@@ -160,7 +189,7 @@ func handleGetPhotoStatus(resp http.ResponseWriter, req *http.Request) error {
 	return nil
 }
 
-func (e *EyeFiServer) consumeUpload(req *http.Request) error {
+func (e *Server) consumeUpload(req *http.Request) error {
 	mr, err := req.MultipartReader()
 	if err != nil {
 		return err
@@ -224,7 +253,7 @@ func (e *EyeFiServer) consumeUpload(req *http.Request) error {
 	return nil
 }
 
-func (e *EyeFiServer) handleUpload(resp http.ResponseWriter, req *http.Request) error {
+func (e *Server) handleUpload(resp http.ResponseWriter, req *http.Request) error {
 	defer req.Body.Close()
 
 	err := e.consumeUpload(req)
@@ -334,26 +363,4 @@ type Envelope struct {
 	Body Body `xml:"http://schemas.xmlsoap.org/soap/envelope/ Body"`
 }
 
-/////// Move this out of the library (just here for testing)
 
-type SaveFileUploadHandler struct {
-	Directory string
-}
-
-func (h *SaveFileUploadHandler) HandleUpload(filename string, data []byte) error {
-	localFilename := fmt.Sprintf("%s/%s", h.Directory, filename)
-	log.Printf("Writing %s\n", localFilename)
-	return ioutil.WriteFile(localFilename, data, 0777)
-}
-
-func main() {
-	tempDir, err := ioutil.TempDir("", "eyefi")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	handler := &SaveFileUploadHandler{Directory: tempDir}
-	log.Printf("Files will be saved to: %s\n", tempDir)
-	e := NewEyeFiServer("818b6183a1a0839d88366f5d7a4b0161", handler)
-	e.ListenAndServe()
-}
