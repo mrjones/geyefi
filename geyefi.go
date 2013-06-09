@@ -31,11 +31,6 @@ type UploadHandler interface {
 	HandleUpload(filename string, data []byte) error
 }
 
-type EyeFiServer struct {
-	uploadKey string
-	uploadHandler UploadHandler
-}
-
 func NewEyeFiServer(uploadKey string, uploadHandler UploadHandler) *EyeFiServer {
 	return &EyeFiServer{uploadKey: uploadKey, uploadHandler: uploadHandler}
 }
@@ -49,28 +44,35 @@ func (e *EyeFiServer) ListenAndServe() {
 
 //////////////////
 
+type EyeFiServer struct {
+	uploadKey string
+	uploadHandler UploadHandler
+}
+
 func (e *EyeFiServer) handler(resp http.ResponseWriter, req *http.Request) {
 	log.Printf(req.URL.Path)
 	defer req.Body.Close()
 
 	action := req.Header.Get("SoapAction")
+	var err error
 	if strings.Contains(action, "urn:StartSession") {
-		e.handleStartSession(resp, req)
+		err = e.handleStartSession(resp, req)
 	} else if strings.Contains(action, "urn:GetPhotoStatus") {
-		handleGetPhotoStatus(resp, req)
+		err = handleGetPhotoStatus(resp, req)
 	} else if (strings.Contains(req.URL.Path, "/api/soap/eyefilm/v1/upload")) {
-		e.handleUpload(resp, req)
+		err = e.handleUpload(resp, req)
 	} else if strings.Contains(action, "urn:MarkLastPhotoInRoll") {
-		handleMarkLastPhotoInRoll(resp, req)
+		err = handleMarkLastPhotoInRoll(resp, req)
 	} else {
 		fmt.Printf("Unknown action:  %s\n", action)
 	}
 
+	if err != nil {
+		log.Printf("ERROR HANDLING REQUEST: %s\n", err)
+	}
 }
 
-
 func (e *EyeFiServer) credential(mac string, nonce string) (string, error) {
-	// http://play.golang.org/p/rXnoiRvtzr
 	h := md5.New()
 	s := mac + nonce + e.uploadKey
 	b, err := hex.DecodeString(s)
@@ -93,16 +95,16 @@ func respond(body []byte, resp http.ResponseWriter) {
 
 }
 
-func (e *EyeFiServer) handleStartSession(resp http.ResponseWriter, req *http.Request) {
+func (e *EyeFiServer) handleStartSession(resp http.ResponseWriter, req *http.Request) error {
 	defer req.Body.Close()
 	env, err := parseEnvelope(req.Body)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	credential, err := e.credential(env.Body.StartSession.MacAddress, env.Body.StartSession.Nonce)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	response := fmt.Sprintf(
@@ -139,15 +141,10 @@ func (e *EyeFiServer) handleStartSession(resp http.ResponseWriter, req *http.Req
 	 */
 
 	respond(responseBytes, resp)
+	return nil
 }
 
-func handleGetPhotoStatus(resp http.ResponseWriter, req *http.Request) {
-//	defer req.Body.Close()
-//	env, err := := parseEnvelope(req.Body)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-
+func handleGetPhotoStatus(resp http.ResponseWriter, req *http.Request) error {
 	// check card credential etc
 	respond([]byte(
 		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
@@ -159,6 +156,8 @@ func handleGetPhotoStatus(resp http.ResponseWriter, req *http.Request) {
     "    </ns1:GetPhotoStatusResponse>" +
     "  </SOAP-ENV:Body>" +
 		"</SOAP-ENV:Envelope>"), resp)
+
+	return nil
 }
 
 func (e *EyeFiServer) consumeUpload(req *http.Request) error {
@@ -206,13 +205,6 @@ func (e *EyeFiServer) consumeUpload(req *http.Request) error {
 		}
 	}
 
-	data, err := ioutil.ReadAll(dataPart)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Got %d bytes of data\n", len(data))
-
 	// TODO: verify checksum
 	checksumPart, err := mr.NextPart()
 	if err != nil {
@@ -227,12 +219,12 @@ func (e *EyeFiServer) consumeUpload(req *http.Request) error {
 
 	_, err = mr.NextPart()
 	if err != io.EOF {
-		log.Fatal("Got a fourth part!!");
+		return err
 	}
 	return nil
 }
 
-func (e *EyeFiServer) handleUpload(resp http.ResponseWriter, req *http.Request) {
+func (e *EyeFiServer) handleUpload(resp http.ResponseWriter, req *http.Request) error {
 	defer req.Body.Close()
 
 	err := e.consumeUpload(req)
@@ -240,7 +232,7 @@ func (e *EyeFiServer) handleUpload(resp http.ResponseWriter, req *http.Request) 
 	success := "true"
 	if err != nil {
 		success = "false"
-		log.Printf("ERROR!!! %s\n", err)
+		log.Printf("ERROR FROM UPLOAD HANDLER: %s\n", err)
 	}
 
 	response := fmt.Sprintf(
@@ -254,9 +246,10 @@ func (e *EyeFiServer) handleUpload(resp http.ResponseWriter, req *http.Request) 
 		"</SOAP-ENV:Envelope>", success)
 
 	respond([]byte(response), resp)
+	return nil
 }
 
-func handleMarkLastPhotoInRoll(resp http.ResponseWriter, req *http.Request) {
+func handleMarkLastPhotoInRoll(resp http.ResponseWriter, req *http.Request) error {
 //	defer req.Body.Close()
 //	env, err := parseEnvelope(req.Body)
 //	if err != nil {
@@ -272,6 +265,7 @@ func handleMarkLastPhotoInRoll(resp http.ResponseWriter, req *http.Request) {
 		"</SOAP-ENV:Envelope>")
 
 	respond([]byte(response), resp)
+	return nil
 }
 
 func parseEnvelope(in io.Reader) (*Envelope, error){
@@ -340,15 +334,7 @@ type Envelope struct {
 	Body Body `xml:"http://schemas.xmlsoap.org/soap/envelope/ Body"`
 }
 
-// return err
-func parseNonce(startSessionXml string) string {
-	var envelope Envelope
-	err := xml.Unmarshal([]byte(startSessionXml), &envelope)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return envelope.Body.StartSession.Nonce
-}
+/////// Move this out of the library (just here for testing)
 
 type SaveFileUploadHandler struct {
 	Directory string
@@ -371,4 +357,3 @@ func main() {
 	e := NewEyeFiServer("818b6183a1a0839d88366f5d7a4b0161", handler)
 	e.ListenAndServe()
 }
-
