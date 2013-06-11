@@ -1,10 +1,54 @@
-package main
+package geyefi
 
 import (
-	"encoding/xml"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strings"
   "testing"
 )
 
+const (
+	UPLOAD_KEY = "abcd"
+)
+
+func TestSession(t *testing.T) {
+	server := NewServer(UPLOAD_KEY, &SaveFileHandler{Directory: "/tmp"})
+
+	port := 12121 // pick something at random
+	server.port = port
+
+	go server.ListenAndServe()
+
+
+	// Start a session
+	startUrl := fmt.Sprintf("http://localhost:%d/api/soap/eyefilm/v1", port)
+	startBody := "<?xml version=\"1.0\" encoding=\"UTF-8\"?><SOAP-ENV:Envelope xmlns:SOAP-ENV=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:ns1=\"EyeFi/SOAP/EyeFilm\"><SOAP-ENV:Body><ns1:StartSession><macaddress>0018562bbac0</macaddress><cnonce>e8f2c769c23a2111d3e8aa07602e4814</cnonce><transfermode>2</transfermode><transfermodetimestamp>1364157918</transfermodetimestamp></ns1:StartSession></SOAP-ENV:Body></SOAP-ENV:Envelope>"
+	startRequest, err := http.NewRequest("POST", startUrl, strings.NewReader(startBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startRequest.Header.Set("SoapAction", "urn:StartSession")
+
+	client := http.Client{}
+	resp, err := client.Do(startRequest)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("Checkpointing. Response was: %s\n", string(body))
+
+//	server.Stop()
+}
+
+
+/*
 func TestStartSessionRequestParse(t *testing.T) {
 	xml := "<?xml version=\"1.0\" encoding=\"UTF-8\"?><SOAP-ENV:Envelope xmlns:SOAP-ENV=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:ns1=\"EyeFi/SOAP/EyeFilm\"><SOAP-ENV:Body><ns1:StartSession><macaddress>0018562bbac0</macaddress><cnonce>e8f2c769c23a2111d3e8aa07602e4814</cnonce><transfermode>2</transfermode><transfermodetimestamp>1364157918</transfermodetimestamp></ns1:StartSession></SOAP-ENV:Body></SOAP-ENV:Envelope>"
 	expected := "e8f2c769c23a2111d3e8aa07602e4814"
@@ -36,3 +80,4 @@ func TestStartSessionResponseFormat(t *testing.T) {
 		t.Fatalf("Didn't get expected nonce: '%s' (Expected) vs '%s' (Actual)", expected, actual)
 	}
 }
+*/

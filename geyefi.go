@@ -16,6 +16,7 @@ import (
   "log"
 	"io"
 	"io/ioutil"
+	"net"
   "net/http"
 	"strconv"
 	"strings"
@@ -29,16 +30,40 @@ type UploadHandler interface {
 }
 
 func NewServer(uploadKey string, uploadHandler UploadHandler) *Server {
-	return &Server{uploadKey: uploadKey, uploadHandler: uploadHandler}
+	return &Server{uploadKey: uploadKey, uploadHandler: uploadHandler, port: 59278}
 }
+
 
 func (e *Server) ListenAndServe() {
 	log.Println("Serving")
 
 	http.HandleFunc("/", e.handler)
-	http.ListenAndServe(":59278", nil)
+	http.ListenAndServe(fmt.Sprintf(":%d", e.port), nil)
 }
 
+
+/*
+func (e* Server) ListenAndServe() error {
+	// TODO: mutex
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", e.port))
+	if err != nil {
+		return err
+	}
+
+	e.listener = &l
+	e.server = &http.Server{}
+	return e.server.Serve(l)
+}
+
+func (e *Server) Stop() {
+	// TODO: mutex
+	if e.listener != nil {
+		(*e.listener).Close()
+	}
+	e.listener = nil
+	e.server = nil
+}
+*/
 /////////////
 
 type SaveFileHandler struct {
@@ -73,6 +98,10 @@ func main() {
 type Server struct {
 	uploadKey string
 	uploadHandler UploadHandler
+	port int
+
+	listener *net.Listener
+	server *http.Server
 }
 
 func (e *Server) handler(resp http.ResponseWriter, req *http.Request) {
