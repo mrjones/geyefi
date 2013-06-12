@@ -1,6 +1,7 @@
 package geyefi
 
 import (
+	"encoding/xml"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -42,7 +43,23 @@ func TestSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Fatalf("Checkpointing. Response was: %s\n", string(body))
+	var envelope Envelope
+	err = xml.Unmarshal(body, &envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// python -c  "mac=\"0018562bbac0\"; nonce=\"e8f2c769c23a2111d3e8aa07602e4814\"; key=\"abcd\"; import hashlib; import binascii; m = hashlib.md5(); m.update(binascii.unhexlify(mac + nonce + key)); print m.hexdigest()" 
+	expectedCredential := "f561e60acb9145efe363ecd3efdd8588"
+	if envelope.Body.StartSessionResponse == nil {
+		t.Fatalf("Error parsing: '%s'\n", string(body))
+	}
+	if envelope.Body.StartSessionResponse.Credential != expectedCredential {
+		t.Fatalf("Expected credential '%s' does not match actual credential '%s'\n",
+			expectedCredential, envelope.Body.StartSessionResponse.Credential)
+	}
+
+	
 
 //	server.Stop()
 }

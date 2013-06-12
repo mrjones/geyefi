@@ -369,17 +369,17 @@ type MarkLastPhotoInRoll struct {
 	MergeDelta string `xml:"mergedelta"`
 }
 
-//type StartSessionResponse struct {
-//	Credential string `xml:"credential"`
-//	Nonce string `xml:"snonce"`
-//	TransferMode int32 `xml:transfermode"`
-//	Timestamp int32 `xml:"transfermodetimestamp"`
-//	UpsyncAllowed bool `xml:"upsyncallowed"`
-//}
+type StartSessionResponse struct {
+	Credential string `xml:"credential"`
+	Nonce string `xml:"snonce"`
+	TransferMode int32 `xml:transfermode"`
+	Timestamp int32 `xml:"transfermodetimestamp"`
+	UpsyncAllowed bool `xml:"upsyncallowed"`
+}
 
 type Body struct {
 	StartSession *StartSession `xml:"EyeFi/SOAP/EyeFilm StartSession,omitempty"`
-//	StartSessionResponse *StartSessionResponse `xml:"EyeFi/SOAP/EyeFilm StartSessionResponse,omitempty"`
+	StartSessionResponse *StartSessionResponse `xml:"http://localhost/api/soap/eyefilm StartSessionResponse,omitempty"`
 	UploadPhoto *UploadPhoto `xml:"EyeFi/SOAP/EyeFilm UploadPhoto,omitempty"`
 	MarkLastPhotoInRoll *MarkLastPhotoInRoll `xml:"EyeFi/SOAP/EyeFilm MarkLastPhotoInRoll,omitempty"`
 }
