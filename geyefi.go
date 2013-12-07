@@ -20,6 +20,7 @@ import (
   "net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 ////// API ///////
@@ -35,36 +36,14 @@ func NewServer(uploadKey string, uploadHandler UploadHandler) *Server {
 
 
 func (e *Server) ListenAndServe() {
-	log.Println("Serving")
+	log.Printf("Serving on port: %d\n", e.port)
 
+	http.HandleFunc("/healthz", e.healthHandler)
+	http.HandleFunc("/statusz", e.statusHandler)
 	http.HandleFunc("/", e.handler)
+	e.status.startTime = time.Now()
 	http.ListenAndServe(fmt.Sprintf(":%d", e.port), nil)
 }
-
-
-/*
-func (e* Server) ListenAndServe() error {
-	// TODO: mutex
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", e.port))
-	if err != nil {
-		return err
-	}
-
-	e.listener = &l
-	e.server = &http.Server{}
-	return e.server.Serve(l)
-}
-
-func (e *Server) Stop() {
-	// TODO: mutex
-	if e.listener != nil {
-		(*e.listener).Close()
-	}
-	e.listener = nil
-	e.server = nil
-}
-*/
-/////////////
 
 type SaveFileHandler struct {
 	Directory string
@@ -95,6 +74,12 @@ func main() {
 
 //////////////////
 
+type ServerStatus struct {
+	startTime time.Time
+	lastScan time.Time
+	scanCount int64
+}
+
 type Server struct {
 	uploadKey string
 	uploadHandler UploadHandler
@@ -102,6 +87,23 @@ type Server struct {
 
 	listener *net.Listener
 	server *http.Server
+	status ServerStatus
+}
+
+func (e *Server) statusHandler(resp http.ResponseWriter, req *http.Request) {
+	body := fmt.Sprintf(
+		"<h1>GeyeFi Server</h1>" +
+		"Started: %s<br/>" +
+		"Last Scan: %s<br/>" +
+		"Num Scans: %d<br/>",
+		e.status.startTime.Format(time.RFC850),
+		e.status.lastScan.Format(time.RFC850),
+		e.status.scanCount)
+	resp.Write([]byte(body))
+}
+
+func (e *Server) healthHandler(resp http.ResponseWriter, req *http.Request) {
+	resp.Write([]byte("OK"))
 }
 
 func (e *Server) handler(resp http.ResponseWriter, req *http.Request) {
@@ -281,6 +283,9 @@ func (e *Server) consumeUpload(req *http.Request) error {
 
 func (e *Server) handleUpload(resp http.ResponseWriter, req *http.Request) error {
 	defer req.Body.Close()
+
+	e.status.scanCount++;
+	e.status.lastScan = time.Now()
 
 	err := e.consumeUpload(req)
 
