@@ -1,4 +1,4 @@
 geyefi
 ======
 
-[Golang](http://www.golang.org) (Go) implementation of an [http://www.eye.fi/](EyeFi) server.
+[Golang](http://www.golang.org) (Go) implementation of an [EyeFi](http://www.eye.fi/) server.
